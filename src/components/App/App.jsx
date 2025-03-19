@@ -1,62 +1,99 @@
-import { useState, useEffect } from "react";
-import { nanoid } from "nanoid";
-import ContactForm from "../ContactForm/ContactForm";
-import SearchBox from "../SearchBox/SearchBox";
-import ContactList from "../ContactList/ContactList";
-
-import css from "./App.module.css";
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import SearchBar from "../SearchBar/SearchBar";
+import ImageGallery from "../ImageGallery/ImageGallery";
+import Loader from "../Loader/Loader";
+import ErrorMessage from "../ErrorMessage/ErrorMessage";
+import LoadMoreBtn from "../LoadMoreBtn/LoadMoreBtn";
+import ImageModal from "../ImageModal/ImageModal";
+import { toast } from "react-hot-toast";
+import styles from "./App.module.css";
 
 const App = () => {
-  const [contacts, setContacts] = useState(() => {
-    const savedContacts = localStorage.getItem("contacts");
-    return savedContacts
-      ? JSON.parse(savedContacts)
-      : [
-          { id: "id-1", name: "Rosie Simpson", number: "459-12-56" },
-          { id: "id-2", name: "Hermione Kline", number: "443-89-12" },
-          { id: "id-3", name: "Eden Clements", number: "645-17-79" },
-          { id: "id-4", name: "Annie Copeland", number: "227-91-26" },
-        ];
-  });
+  const [images, setImages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [modalImage, setModalImage] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const [filter, setFilter] = useState("");
+  const fetchImages = useCallback(async (searchQuery, pageNumber) => {
+    if (!searchQuery) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await axios.get(
+        "https://api.unsplash.com/search/photos",
+        {
+          params: { query: searchQuery, page: pageNumber, per_page: 12 },
+          headers: {
+            Authorization: `Client-ID ${import.meta.env.VITE_UNSPLASH_API_KEY}`,
+          },
+        }
+      );
+
+      setImages((prev) =>
+        pageNumber === 1
+          ? response.data.results
+          : [...prev, ...response.data.results]
+      );
+      setTotalPages(response.data.total_pages);
+    } catch (error) {
+      console.error(
+        "Error fetching images:",
+        error.response?.data || error.message
+      );
+      setError("Failed to fetch images. Please try again later.");
+      toast.error("Failed to fetch images.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem("contacts", JSON.stringify(contacts));
-  }, [contacts]);
+    fetchImages(query, page);
+  }, [query, page, fetchImages]);
 
-  const addContact = (name, number) => {
-    const isDuplicate = contacts.some(
-      (contact) => contact.name.toLowerCase() === name.toLowerCase()
-    );
-
-    if (isDuplicate) {
-      alert(`${name} is already in contacts!`);
-      return;
+  const handleSearch = (newQuery) => {
+    if (newQuery !== query) {
+      setQuery(newQuery);
+      setPage(1);
+      setImages([]);
     }
-
-    const newContact = {
-      id: nanoid(),
-      name,
-      number,
-    };
-    setContacts((prev) => [...prev, newContact]);
   };
 
-  const deleteContact = (id) => {
-    setContacts((prev) => prev.filter((contact) => contact.id !== id));
+  const openModal = (image) => {
+    setModalImage(image);
+    setIsModalOpen(true);
   };
 
-  const filteredContacts = contacts.filter((contact) =>
-    contact.name.toLowerCase().includes(filter.toLowerCase())
-  );
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setModalImage(null);
+  };
 
   return (
-    <div className={css.container}>
-      <h1>Phonebook</h1>
-      <ContactForm addContact={addContact} />
-      <SearchBox value={filter} onChange={setFilter} total={contacts.length} />
-      <ContactList contacts={filteredContacts} onDelete={deleteContact} />
+    <div className={styles.app}>
+      <SearchBar onSubmit={handleSearch} />
+      {error && <ErrorMessage message={error} />}
+      <div className={styles.galleryContainer}>
+        <ImageGallery images={images} onImageClick={openModal} />
+      </div>
+      {loading && <Loader />}
+      {images.length > 0 && page < totalPages && !loading && (
+        <LoadMoreBtn onClick={() => setPage((prev) => prev + 1)} />
+      )}
+      {modalImage && (
+        <ImageModal
+          isOpen={isModalOpen}
+          image={modalImage}
+          onRequestClose={closeModal}
+        />
+      )}
     </div>
   );
 };
